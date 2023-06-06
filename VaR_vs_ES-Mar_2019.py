@@ -45,34 +45,22 @@ def scrape_wiki(url):
     soup = BeautifulSoup (website_url, 'lxml')
     table = soup.find('table', {'class' : 'wikitable sortable'})
     links = table.findAll('a')
-    # obtain references from links
-    links_2 = []    
-    for l in links:
-        links_2.append(l.get('href'))
-    
-    # split links
-    split_links = []
-    for l in links_2:
-        split_links.append(l.split ("/"))
-    
+    links_2 = [l.get('href') for l in links]
+    split_links = [l.split ("/") for l in links_2]
     # identify and group symbols in a list of tickers
     tickers = []
     for sl in split_links:
         try:    
             if sl[0] != '':
-                if sl[2]=='www.nyse.com' or sl[2]=='www.nasdaq.com':
+                if sl[2] in ['www.nyse.com', 'www.nasdaq.com']:
                     split = sl[4].split(":")
                     if len(split) > 1:
                         tickers.append(split[1])
                     else:
                         tickers.append(split[0].upper())
-                else:
-                    pass
-            else:
-                pass
         except IndexError:
             pass
-    
+
     return tickers
 
 
@@ -89,9 +77,7 @@ def get_data(ticker):
     start = dt.datetime(1989, 2, 1)
     end = dt.datetime(2019, 2, 1)
     data = web.DataReader (ticker, 'yahoo', start, end)
-    a_close = data['Adj Close']
-    
-    return a_close
+    return data['Adj Close']
 
 
 def series_reconstructor(df, reference='^DJI'):
@@ -108,14 +94,9 @@ def series_reconstructor(df, reference='^DJI'):
         market data
     ---------------------------------------------------------------------------
     """
-    # locate series with missing values and store tickers in list
-    incomplete_tickers = []
-    for i in df.isnull().any().index:
-        if df.isnull().any()[i]:
-            incomplete_tickers.append(i)
-        else:
-            pass
-    
+    incomplete_tickers = [
+        i for i in df.isnull().any().index if df.isnull().any()[i]
+    ]
     # create dataframe with incomplete series, reference index series 
     series = df[[reference]+incomplete_tickers]
     # generate delta series (index variations), convert to list
@@ -125,7 +106,7 @@ def series_reconstructor(df, reference='^DJI'):
             -np.log(series[reference].shift(1))
     ).shift(-1).tolist()
     ref_delta.reverse()
-    
+
     # transform the original time series (including missing values) to list
     # and revert order
     # loop the original series values, if value exists append to new series
@@ -146,7 +127,7 @@ def series_reconstructor(df, reference='^DJI'):
                 ref = reconstructed_series[-1]                
         reconstructed_series.reverse()
         df[t] = reconstructed_series
-    
+
     return df
 
 
@@ -169,13 +150,12 @@ def portfolio_generator(df, k=10, n=10):
                 market data for each constituent of each portfolio
     ---------------------------------------------------------------------------
     """    
-    portfolio_dict = {}
-    portfolio_dict['portfolio_0'] = df[index]
+    portfolio_dict = {'portfolio_0': df[index]}
     for i in range(1, k+1):
         portfolio_dict['portfolio_{0}'.format(i)] = df[
             random.sample(tickers, n)
             ]
-    
+
     return portfolio_dict
 
 
@@ -225,7 +205,7 @@ def scenario_identificator(df, window=500):
                 deviations from average returns - 2% of scenaarios (approx)
     ---------------------------------------------------------------------------
     """    
-    df_2 = pd.DataFrame(index=df.index, columns=df.columns)  
+    df_2 = pd.DataFrame(index=df.index, columns=df.columns)
     progress = progress_bar(len(df), fmt=progress_bar.full)
     print()
     print('Calculating historic protfolio average returns for each window')
@@ -235,8 +215,6 @@ def scenario_identificator(df, window=500):
     for i in range(len(df)):
         if i-window >= 0:
             df_2.loc[df_2.index[i]] = df[i-window : i].mean()
-        else:
-            pass
         progress.current += 1
         progress()
         time.sleep(0.1)
@@ -250,7 +228,7 @@ def scenario_identificator(df, window=500):
     neg_th = mean - df_2.std()
     boom_th = mean + df_2.std()*2
     stress_th = mean - df_2.std()*2
-    
+
     # label each day's n-day window scenario, in accordance with historical
     # return and thresholds defined for each portfolio
     return scenario_labeler(df_2, boom_th, pos_th, neg_th, stress_th)
@@ -278,15 +256,13 @@ def var_calculator(df, window=500):
     # the confidence level percentile
     for col in df.columns:
         df_2 = df[col]
-        var_vector = []
-        for i in range(len(df_2)):
-            if i-window >= 0:
-                var_vector.append(
-                        df_2[i-window : i].sort_values(ascending=False)
-                        [round(len(df_2[i-window : i])*0.99)]
-                        )
-            else:
-                pass
+        var_vector = [
+            df_2[i - window : i].sort_values(ascending=False)[
+                round(len(df_2[i - window : i]) * 0.99)
+            ]
+            for i in range(len(df_2))
+            if i - window >= 0
+        ]
         var_df[col] = var_vector
         progress.current += 1
         progress()
@@ -317,15 +293,15 @@ def es_calculator(df, window=500):
     # quantiles beyond the confidence level percentile
     for col in df.columns:
         df_2 = df[col]
-        es_vector = []
-        for i in range(len(df_2)):
-            if i-window >= 0:
-                es_vector.append(
-                        df_2[i-window : i].sort_values(ascending=False)
-                        [round(len(df_2[i-window : i])*0.99)+1:].mean()
-                        )
-            else:
-                pass
+        es_vector = [
+            df_2[i - window : i]
+            .sort_values(ascending=False)[
+                round(len(df_2[i - window : i]) * 0.99) + 1 :
+            ]
+            .mean()
+            for i in range(len(df_2))
+            if i - window >= 0
+        ]
         es_df[col] = es_vector
         progress.current += 1
         progress()
@@ -433,7 +409,7 @@ def results_summary(cube):
             ]
             )
     )
-            
+
     progress = progress_bar(len(cube.columns.levels[0]), fmt=progress_bar.full)
     print()
     print('Summarizing back-test results for each portfolio')
@@ -454,7 +430,7 @@ def results_summary(cube):
                          'Stressed'
                 ]
         )
-        
+
         # calculate maximum consecutive KO periods for each portfolio
         # mapped with scenario type and store in dataframe
         ko_periods = cube[p].drop(['P&L', 'VaR', 'ES'], axis=1)
@@ -498,8 +474,6 @@ def results_summary(cube):
                 table.loc['Max Period KO - ES', col] = ko_periods.loc[col, 
                          'ES - Back-test'
                 ]
-            else:
-                pass
         matrix[p] = table
         progress.current += 1
         progress()
